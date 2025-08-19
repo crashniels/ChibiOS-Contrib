@@ -22,7 +22,6 @@
  * @{
  */
 
-#include "osal.h"
 #include "hal.h"
 
 #if HAL_USE_I2C || defined(__DOXYGEN__)
@@ -80,7 +79,14 @@ void i2c_lld_start(I2CDriver *i2cp) {
 
 #if LPC_I2C_USE_I2C1
     if (&I2CD1 == i2cp) {
+      LPC_SYSCON->PRESETCTRL |= SYSCON_PRESETCTRL_I2C_RSTn; // Clear Reset
 
+      LPC_I2C->CONSET = 0x44; //Master only 0x40, Slave / Master 0x44   
+      
+      #if !defined(LPC_I2C_I2C1_IRQ_PRIORITY)
+      #error "LPC_SPI_SPI1_IRQ_PRIORITY is not defined"
+      #endif
+      nvicEnableVector(I2C_IRQn, LPC_I2C_I2C1_IRQ_PRIORITY);
     }
 #endif
 
@@ -101,7 +107,7 @@ void i2c_lld_stop(I2CDriver *i2cp) {
 
 #if LPC_I2C_USE_I2C1 == TRUE
     if (&I2CD1 == i2cp) {
-
+      nvicDisableVector(I2C_IRQn);
     }
 #endif
 
@@ -132,21 +138,12 @@ void i2c_lld_stop(I2CDriver *i2cp) {
 msg_t i2c_lld_master_receive_timeout(I2CDriver *i2cp, i2caddr_t addr,
                                      uint8_t *rxbuf, size_t rxbytes,
                                      systime_t timeout) {
-  lpi2c_master_transfer_t xfer;
-  status_t ret;
 
-  xfer.flags          = kLPI2C_TransferDefaultFlag;
-  xfer.slaveAddress   = addr;
-  xfer.direction      = kLPI2C_Read;
-  xfer.subaddress     = 0;
-  xfer.subaddressSize = 0;
-  xfer.data           = rxbuf;
-  xfer.dataSize       = rxbytes;
+  i2cp->addr = (addr << 1) | 0x01;
+  i2cp->rxbuf = rxbuf;
+  i2cp->rxbytes = rxbytes;
   
-  ret = LPI2C_MasterTransferBlocking(i2cp->i2c.lpi2c_p, &xfer);
-  if (ret != kStatus_Success) {
-    return MSG_RESET;
-  }
+  LPC_I2C->CONSET = 0x20;
 
   return MSG_OK;
 }
@@ -178,21 +175,11 @@ msg_t i2c_lld_master_transmit_timeout(I2CDriver *i2cp, i2caddr_t addr,
                                       const uint8_t *txbuf, size_t txbytes,
                                       uint8_t *rxbuf, size_t rxbytes,
                                       systime_t timeout) {
-  lpi2c_master_transfer_t xfer;
-  status_t ret;
-
-  xfer.flags          = kLPI2C_TransferDefaultFlag;
-  xfer.slaveAddress   = addr;
-  xfer.direction      = kLPI2C_Write;
-  xfer.subaddress     = 0;
-  xfer.subaddressSize = 0;
-  xfer.data           = (void *)txbuf;
-  xfer.dataSize       = txbytes;
-
-  ret = LPI2C_MasterTransferBlocking(i2cp->i2c.lpi2c_p, &xfer);
-  if (ret != kStatus_Success) {
-    return MSG_RESET;
-  }
+  i2cp->addr = (addr << 1);
+  i2cp->txbuf = txbuf;
+  i2cp->txbytes = txbytes;
+  
+  LPC_I2C->CONSET = 0x20;
 
   return MSG_OK;
 }
